@@ -15,7 +15,7 @@ import {
 import { EnvelopeIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Link as RouterLink } from "react-router";
+import { Link as RouterLink, useNavigate } from "react-router";
 import api from "~/services/api";
 import {
 	useCreateMailbox,
@@ -129,7 +129,7 @@ export default function HomeRoute() {
 	};
 
 	const isConfigured = emailAddresses.length > 0;
-	const accounts = isConfigured
+	let accounts = isConfigured
 		? emailAddresses.map((addr) => ({
 				id: addr,
 				email: addr,
@@ -137,7 +137,36 @@ export default function HomeRoute() {
 			}))
 		: mailboxes;
 
-	const isLoading = !configData;
+	const userEmail = configData?.userEmail || "";
+	const userDomain = userEmail.split("@")[1]?.toLowerCase();
+	const isDomainUser = userDomain && domains.map((d) => d.toLowerCase()).includes(userDomain);
+
+	if (isDomainUser && userEmail) {
+		const filtered = accounts.filter(
+			(acc) => acc.email.toLowerCase() === userEmail.toLowerCase(),
+		);
+		if (filtered.length > 0) {
+			accounts = filtered;
+		} else {
+			accounts = [
+				{
+					id: userEmail.toLowerCase(),
+					email: userEmail.toLowerCase(),
+					name: userEmail.split("@")[0] || userEmail,
+				},
+			];
+		}
+	}
+
+	const isLoading = !configData || (!isConfigured && !mailboxesFetched);
+
+	const navigate = useNavigate();
+
+	useEffect(() => {
+		if (!isLoading && accounts.length === 1) {
+			navigate(`/mailbox/${accounts[0].id}`, { replace: true });
+		}
+	}, [isLoading, accounts, navigate]);
 
 	return (
 		<div className="min-h-screen bg-kumo-recessed">

@@ -3,7 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Banner, Button, Input } from "@cloudflare/kumo";
-import { FloppyDiskIcon, PaperPlaneTiltIcon, XIcon } from "@phosphor-icons/react";
+import { FileIcon, FloppyDiskIcon, PaperPlaneTiltIcon, PaperclipIcon, XIcon } from "@phosphor-icons/react";
 import { useParams } from "react-router";
 import { useComposeForm } from "~/hooks/useComposeForm";
 import RichTextEditor from "./RichTextEditor";
@@ -27,6 +27,9 @@ export default function ComposePanel() {
 		setSubject,
 		body,
 		setBody,
+		attachments,
+		handleAttachmentChange,
+		handleRemoveAttachment,
 		error,
 		isSavingDraft,
 		isSending,
@@ -138,6 +141,45 @@ export default function ComposePanel() {
 								/>
 							</div>
 						</div>
+					</div>
+
+					<div className="space-y-2">
+						<div className="flex items-center gap-2">
+							<PaperclipIcon size={16} className="text-kumo-subtle" />
+							<label className="text-sm font-medium text-kumo-subtle cursor-pointer">
+								Attachment
+								<input
+									type="file"
+									multiple
+									onChange={handleAttachmentChange}
+									className="hidden"
+								/>
+							</label>
+						</div>
+
+						{attachments.length > 0 && (
+							<div className="flex flex-wrap gap-2">
+								{attachments.map((attachment) => (
+									<div
+										key={attachment.id}
+										className="flex items-center gap-2 rounded-md border border-kumo-line bg-kumo-fill px-3 py-2 text-sm"
+									>
+										<FileIcon size={16} className="text-kumo-subtle shrink-0" />
+										<span className="max-w-[220px] truncate text-kumo-default">
+											{attachment.filename}
+										</span>
+										<button
+											type="button"
+											onClick={() => handleRemoveAttachment(attachment.id)}
+											className="text-kumo-subtle hover:text-kumo-default"
+											aria-label={`Remove ${attachment.filename}`}
+										>
+											<XIcon size={14} />
+										</button>
+									</div>
+								))}
+							</div>
+						)}
 					</div>
 
 					<div className="border border-kumo-line rounded-md overflow-hidden bg-kumo-base">

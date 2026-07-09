@@ -3,7 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { useKumoToastManager } from "@cloudflare/kumo";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
 	buildQuotedReplyBlock,
 	escapeHtml,
@@ -41,6 +41,13 @@ interface ComposeFormFields {
 	showCcBcc: boolean;
 	subject: string;
 	body: string;
+}
+
+interface PendingAttachment {
+	id: string;
+	filename: string;
+	content: string;
+	type: string;
 }
 
 const EMPTY_FIELDS: ComposeFormFields = {
@@ -102,6 +109,22 @@ function buildReplyAllFields(
 		cc: ccRecipients.join(", "),
 		showCcBcc: ccRecipients.length > 0,
 	};
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => {
+			if (typeof reader.result === "string") {
+				const [_, base64] = reader.result.split(",");
+				resolve(base64 ?? reader.result);
+			} else {
+				reject(new Error("Could not read the selected file."));
+			}
+		};
+		reader.onerror = () => reject(new Error("Could not read the selected file."));
+		reader.readAsDataURL(file);
+	});
 }
 
 function buildInitialComposeFields(
@@ -178,6 +201,7 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 	const [showCcBcc, setShowCcBcc] = useState(false);
 	const [subject, setSubject] = useState("");
 	const [body, setBody] = useState("");
+	const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [isSavingDraft, setIsSavingDraft] = useState(false);
 	const [isSending, setIsSending] = useState(false);
@@ -201,6 +225,7 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 			sigBlock,
 		);
 		setError(null);
+		setAttachments([]);
 		setTo(initialFields.to);
 		setCc(initialFields.cc);
 		setBcc(initialFields.bcc);
@@ -208,6 +233,32 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 		setSubject(initialFields.subject);
 		setBody(initialFields.body);
 	}, [composeOptions, currentMailbox?.email, sigBlock]);
+
+	const handleAttachmentChange = async (event: ChangeEvent<HTMLInputElement>) => {
+		const files = Array.from(event.target.files ?? []);
+		if (files.length === 0) return;
+
+		try {
+			const nextAttachments = await Promise.all(
+				files.map(async (file) => ({
+					id: `${file.name}-${file.size}-${file.lastModified}`,
+					filename: file.name,
+					content: await readFileAsBase64(file),
+					type: file.type || "application/octet-stream",
+				})),
+			);
+			setAttachments((prev) => [...prev, ...nextAttachments]);
+		} catch (err: unknown) {
+			const message = err instanceof Error ? err.message : "Failed to read attachments.";
+			setError(message);
+		}
+
+		event.target.value = "";
+	};
+
+	const handleRemoveAttachment = (id: string) => {
+		setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
+	};
 
 	const handleSaveDraft = async () => {
 		if (!mailboxId || isSending) return; setIsSavingDraft(true); setError(null);
@@ -248,6 +299,12 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 			subject,
 			html: body,
 			text: htmlToPlainText(body),
+			attachments: attachments.length > 0 ? attachments.map((attachment) => ({
+				content: attachment.content,
+				filename: attachment.filename,
+				type: attachment.type,
+				disposition: "attachment" as const,
+			})) : undefined,
 		};
 		const draftId = composeOptions.draftEmail?.id; const mode = composeOptions.mode; const originalId = composeOptions.originalEmail?.id || composeOptions.draftEmail?.in_reply_to;
 		setIsSending(true); toastManager.add({ title: "Sending email..." });
@@ -262,5 +319,5 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 		finally { setIsSending(false); }
 	};
 
-	return { to, setTo, cc, setCc, bcc, setBcc, showCcBcc, setShowCcBcc, subject, setSubject, body, setBody, error, setError, isSavingDraft, isSending, formTitle, handleSaveDraft, handleSend, closeCompose, closePanel };
+	return { to, setTo, cc, setCc, bcc, setBcc, showCcBcc, setShowCcBcc, subject, setSubject, body, setBody, attachments, handleAttachmentChange, handleRemoveAttachment, error, setError, isSavingDraft, isSending, formTitle, handleSaveDraft, handleSend, closeCompose, closePanel };
 }

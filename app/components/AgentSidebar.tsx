@@ -41,24 +41,26 @@ function LazyAgentPanel() {
 }
 
 export default function AgentSidebar() {
-	const [activeTab, setActiveTab] = useState<"agent" | "mcp">("agent");
+	//const [activeTab, setActiveTab] = useState<"agent" | "mcp">("agent");
+	//const [activeTab, setActiveTab] = useState<"agent">("agent");
 
 	return (
 		<div className="flex flex-col h-full">
 			{/* Tab bar */}
+			{/*
 			<div className="flex items-center border-b border-kumo-line shrink-0">
 				<button
 					type="button"
 					onClick={() => setActiveTab("agent")}
-					className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 bg-transparent cursor-pointer ${
-						activeTab === "agent"
+					className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 bg-transparent cursor-pointer ${activeTab === "agent"
 							? "border-kumo-brand text-kumo-default"
 							: "border-transparent text-kumo-subtle hover:text-kumo-default"
-					}`}
+						}`}
 				>
 					<RobotIcon size={14} weight={activeTab === "agent" ? "fill" : "regular"} />
 					Agent
 				</button>
+				
 				<button
 					type="button"
 					onClick={() => setActiveTab("mcp")}
@@ -71,14 +73,16 @@ export default function AgentSidebar() {
 					<PlugsIcon size={14} weight={activeTab === "mcp" ? "fill" : "regular"} />
 					MCP
 				</button>
+				
+				
 			</div>
-
+*/}
 			{/* Tab content — keep agent mounted so chat isn't lost */}
 			<div className="flex-1 min-h-0 overflow-hidden">
-				<div className={activeTab === "agent" ? "h-full" : "hidden"}>
+				<div className="h-full" >
 					<LazyAgentPanel />
 				</div>
-				{activeTab === "mcp" && <MCPPanel />}
+				{/*activeTab === "mcp" && <MCPPanel />*/}
 			</div>
 		</div>
 	);

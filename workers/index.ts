@@ -6,7 +6,7 @@ import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import PostalMime from "postal-mime";
 import { z } from "zod";
-import { sendEmail } from "./email-sender";
+import { sendEmailWithResend } from "./email-sender";
 import { storeAttachments, type StoredAttachment } from "./lib/attachments";
 import {
 	validateSender,
@@ -89,7 +89,8 @@ app.get("/api/v1/config", (c) => {
 	const domainsRaw = c.env.DOMAINS || "";
 	const domains = domainsRaw.split(",").map((d) => d.trim()).filter(Boolean);
 	const emailAddresses = c.env.EMAIL_ADDRESSES ?? [];
-	return c.json({ domains, emailAddresses });
+	const userEmail = c.req.header("cf-access-authenticated-user-email") || "";
+	return c.json({ domains, emailAddresses, userEmail });
 });
 
 // -- Mailboxes ------------------------------------------------------
@@ -202,7 +203,7 @@ app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 	}, attachmentData);
 
 	c.executionCtx.waitUntil(
-		sendEmail(c.env.EMAIL, {
+		sendEmailWithResend(c.env.EMAIL_RESEND, {
 			to, cc, bcc, from, subject, html, text,
 			attachments: attachments?.map((att) => ({ content: att.content, filename: att.filename, type: att.type, disposition: att.disposition || "attachment", contentId: att.contentId })),
 			...(in_reply_to ? { headers: buildThreadingHeaders(in_reply_to, references || []) } : {}),
@@ -345,6 +346,19 @@ async function streamToArrayBuffer(stream: ReadableStream, streamSize: number) {
 	return result;
 }
 
+function getBase64Content(content: string | ArrayBuffer | Uint8Array): string {
+	if (typeof content === "string") {
+		return btoa(content);
+	}
+	let binary = "";
+	const bytes = new Uint8Array(content);
+	const len = bytes.byteLength;
+	for (let i = 0; i < len; i++) {
+		binary += String.fromCharCode(bytes[i]);
+	}
+	return btoa(binary);
+}
+
 async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env: Env, ctx: ExecutionContext) {
 	const rawEmail = await streamToArrayBuffer(event.raw, event.rawSize);
 	const parsedEmail = await new PostalMime().parse(rawEmail);
@@ -364,7 +378,9 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 	if (!mailboxId) throw new Error("received email with no valid recipient address");
 
 	const messageId = crypto.randomUUID();
-	if (!(await env.BUCKET.head(`mailboxes/${mailboxId}.json`))) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
+	const mailboxObj = await env.BUCKET.get(`mailboxes/${mailboxId}.json`);
+	if (!mailboxObj) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
+	const mailboxSettings = (await mailboxObj.json()) as Record<string, any>;
 
 	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxId));
 
@@ -407,6 +423,44 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 		method: "POST", headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ mailboxId, emailId: messageId, sender: (parsedEmail.from?.address || "").toLowerCase(), subject: parsedEmail.subject || "", threadId }),
 	})).catch((e) => console.error("Auto-draft trigger failed:", (e as Error).message)));
+
+	const forwardEmail = (mailboxSettings.forwardEmail || "").trim().toLowerCase();
+	const fromAddress = (parsedEmail.from?.address || "").toLowerCase();
+	const isLoop =
+		forwardEmail === "" ||
+		fromAddress === forwardEmail ||
+		allRecipients.includes(forwardEmail) ||
+		ccRecipients.includes(forwardEmail) ||
+		bccRecipients.includes(forwardEmail);
+
+	if (env.EMAIL_RESEND && !isLoop) {
+		const resendAttachments = parsedEmail.attachments?.map((att) => ({
+			content: getBase64Content(att.content),
+			filename: att.filename || "untitled",
+			content_type: att.mimeType,
+		})) || [];
+
+		const originalSenderName = parsedEmail.from?.name || parsedEmail.from?.address || "Sender";
+		const originalSenderEmail = parsedEmail.from?.address || "";
+		const fromDisplayName = `${originalSenderName} (${originalSenderEmail})`;
+
+		ctx.waitUntil(
+			sendEmailWithResend(env.EMAIL_RESEND, {
+				to: forwardEmail,
+				from: {
+					name: fromDisplayName,
+					email: mailboxId,
+				},
+				subject: parsedEmail.subject || "No Subject",
+				html: parsedEmail.html || undefined,
+				text: parsedEmail.text || undefined,
+				attachments: resendAttachments,
+				replyTo: originalSenderEmail ? [originalSenderEmail] : undefined,
+			}).catch((e) => {
+				console.error("Auto-forwarding failed:", (e as Error).message);
+			})
+		);
+	}
 }
 
 export { app, receiveEmail };
